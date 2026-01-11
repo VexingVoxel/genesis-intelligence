@@ -1,35 +1,53 @@
 import zmq
-import json
+import struct
 import time
+import socket
+
+# Configuration
+NODE1_IP = "192.168.50.29"
+CONTROLLER_IP = "192.168.50.126" # Laptop
+ZMQ_ADDR = f"tcp://{NODE1_IP}:5555"
+PRESENCE_PORT = 5558
+MAGIC_BYTE = 0xDEADBEEF
 
 def main():
+    # 0. Initialize ZMQ
     context = zmq.Context()
     subscriber = context.socket(zmq.SUB)
-    
-    node1_ip = "192.168.50.29"
-    print(f"Connecting to {node1_ip}:5555...")
-    subscriber.connect(f"tcp://{node1_ip}:5555")
+    subscriber.setsockopt(zmq.CONFLATE, 1)
+    subscriber.connect(ZMQ_ADDR)
     subscriber.setsockopt_string(zmq.SUBSCRIBE, "")
 
-    # Wait a second for the connection to stabilize
-    time.sleep(1)
+    # 1. Initialize UDP Heartbeat
+    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    print(f"--- Genesis Intelligence Listener Active ---")
+    print(f"--- Genesis Intelligence Hub: Active ---")
+    print(f"Listening to Core at {ZMQ_ADDR}")
+    print(f"Sending Presence to {CONTROLLER_IP}:{PRESENCE_PORT}")
 
-    count = 0
-    while count < 10:
-        try:
-            # Add a timeout to recv so we can see if it's just waiting
-            if subscriber.poll(5000): # 5 second timeout
-                message = subscriber.recv_string()
-                data = json.loads(message)
-                print(f"[{count}] Received: Tick {data['tick']} from {data['node_name']}")
-                count += 1
-            else:
-                print("No message received in 5 seconds...")
-        except Exception as e:
-            print(f"Error: {e}")
-            break
+    try:
+        while True:
+            # A. Send Presence Heartbeat
+            udp_socket.sendto(b"PRESENCE", (CONTROLLER_IP, PRESENCE_PORT))
+
+            # B. Receive Binary World State
+            if subscriber.poll(100):
+                packet = subscriber.recv()
+                
+                # Basic Binary Validation
+                if len(packet) >= 40:
+                    magic = struct.unpack("<I", packet[0:4])[0]
+                    if magic == MAGIC_BYTE:
+                        tick = struct.unpack("<Q", packet[8:16])[0]
+                        if tick % 60 == 0:
+                            print(f"[Intelligence] Synchronized at Tick {tick}")
+            
+            time.sleep(1) # Presence every second
+
+    except KeyboardInterrupt:
+        print("Stopping Intelligence Hub...")
+    finally:
+        udp_socket.close()
 
 if __name__ == '__main__':
     main()
