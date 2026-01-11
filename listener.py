@@ -41,30 +41,35 @@ def cognitive_loop(cmd_socket):
             if last_world_slice is None:
                 continue
             
-            # 1. Capture Agent 0's neighborhood
+            # 1. Capture Agent 0's neighborhood (Expanded to 7x7)
             ax, ay = int(agent_0_pos[0]), int(agent_0_pos[1])
             neighborhood = []
-            for dy in range(-1, 2):
+            for dy in range(-3, 4):
                 row = []
-                for dx in range(-1, 2):
+                for dx in range(-3, 4):
                     nx, ny = (ax + dx) % 128, (ay + dy) % 128
-                    # last_world_slice is 128x128 1D array of u32
                     voxel = last_world_slice[ny * 128 + nx]
                     v_id = voxel & 0xFF
-                    row.append("Grass" if v_id == 2 else "Dirt")
-                neighborhood.append(row)
+                    row.append("G" if v_id == 2 else ".")
+                neighborhood.append("".join(row))
 
         # 2. Query Ollama
-        prompt = f"""You are an autonomous agent in a voxel world.
-Your current position is ({ax}, {ay}).
-Your 3x3 surroundings (rows top-to-bottom):
-Row 1: {neighborhood[0]}
-Row 2: {neighborhood[1]}
-Row 3: {neighborhood[2]}
+        prompt = f"""You are an autonomous agent at ({ax}, {ay}).
+Your 7x7 surroundings ('G' is Grass/Food, '.' is Dirt/Empty):
+{neighborhood[0]}
+{neighborhood[1]}
+{neighborhood[2]}
+{neighborhood[3]} (You are at the center)
+{neighborhood[4]}
+{neighborhood[5]}
+{neighborhood[6]}
 
-You are hungry. Grass is food. Dirt is empty ground.
-Choose a direction to move: North, South, East, West, NorthEast, NorthWest, SouthEast, SouthWest.
-Response format: JSON only. Example: {{"direction": "North", "reason": "I see grass there"}}
+MISSION: Find Grass ('G') and eat it. 
+If you see 'G', move towards it.
+If you only see '.', pick a random direction to EXPLORE. 
+Do not repeat the same direction forever.
+
+Response format: JSON only. Example: {{"direction": "NorthWest", "reason": "Exploring for food"}}
 """
         try:
             response = ollama.chat(model='llama3.2:3b', messages=[
